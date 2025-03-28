@@ -1,0 +1,147 @@
+import tkinter as tk
+import threading
+import time
+import random
+import math
+
+NUM_PHILOSOPHERS = 5
+STATE_THINKING = "thinking"
+STATE_HUNGRY = "hungry"
+STATE_EATING = "eating"
+
+COLORS = {
+    STATE_THINKING: "lightblue",
+    STATE_HUNGRY: "yellow",
+    STATE_EATING: "lightgreen"
+}
+
+class Fork:
+    def __init__(self, canvas, coords):
+        self.lock = threading.Lock()
+        self.canvas = canvas
+        self.line = canvas.create_line(*coords, fill="gray", width=4)
+
+    def pickup(self):
+        return self.lock.acquire(blocking=False)
+
+    def putdown(self):
+        self.lock.release()
+
+    def set_color(self, color):
+        self.canvas.itemconfig(self.line, fill=color)
+
+class Philosopher:
+    def __init__(self, index, left_fork, right_fork, canvas, coords, stat_label):
+        self.index = index
+        self.left_fork = left_fork
+        self.right_fork = right_fork
+        self.canvas = canvas
+        self.coords = coords
+        self.stat_label = stat_label
+
+        self.state = STATE_THINKING
+        self.times_ate = 0
+
+        self.circle = self.canvas.create_oval(*coords, fill=COLORS[self.state], outline="black", width=2)
+        self.label = self.canvas.create_text((coords[0]+coords[2])//2, (coords[1]+coords[3])//2,
+                                             text=f"Ф{index}", font=("Arial", 10, "bold"))
+
+        self.running = True
+        self.thread = threading.Thread(target=self.run)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        self.thread.join()
+
+    def run(self):
+        while self.running:
+            self.set_state(STATE_THINKING)
+            time.sleep(random.uniform(2.0, 3.0))  
+
+            self.set_state(STATE_HUNGRY)
+            self.try_eat()
+
+    def try_eat(self):
+        while self.running:
+            left = self.left_fork.pickup()
+            if left:
+                self.left_fork.set_color("red")
+                right = self.right_fork.pickup()
+                if right:
+                    self.right_fork.set_color("red")
+                    self.set_state(STATE_EATING)
+                    self.times_ate += 1
+                    self.update_stats()
+                    time.sleep(random.uniform(2.0, 3.0))
+                    self.right_fork.putdown()
+                    self.left_fork.putdown()
+                    self.right_fork.set_color("gray")
+                    self.left_fork.set_color("gray")
+                    break
+                else:
+                    self.left_fork.putdown()
+                    self.left_fork.set_color("gray")
+            time.sleep(random.uniform(0.2, 0.5))  
+
+    def set_state(self, state):
+        self.state = state
+        self.canvas.itemconfig(self.circle, fill=COLORS[state])
+
+    def update_stats(self):
+        self.stat_label.config(text=f"Philosoph {self.index}: 🍝 {self.times_ate}")
+
+def run_gui():
+    window = tk.Tk()
+    window.title("Dining Philosophers")
+    canvas = tk.Canvas(window, width=650, height=650, bg="white")
+    canvas.grid(row=0, column=0, rowspan=NUM_PHILOSOPHERS)
+
+    stats_frame = tk.Frame(window)
+    stats_frame.grid(row=0, column=1, sticky="n")
+
+    center_x, center_y, radius = 300, 300, 220
+    forks = []
+    philosophers = []
+    stat_labels = []
+
+    positions = []
+    for i in range(NUM_PHILOSOPHERS):
+        angle = 2 * math.pi * i / NUM_PHILOSOPHERS
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        positions.append((x, y))
+
+    # Створюємо виделки (лінії між філософами)
+    for i in range(NUM_PHILOSOPHERS):
+        x1, y1 = positions[i]
+        x2, y2 = positions[(i + 1) % NUM_PHILOSOPHERS]
+        fork = Fork(canvas, (x1, y1, x2, y2))
+        forks.append(fork)
+
+    # Створюємо філософів
+    for i in range(NUM_PHILOSOPHERS):
+        x, y = positions[i]
+        coords = (x - 30, y - 30, x + 30, y + 30)
+        stat = tk.Label(stats_frame, text=f"Philosoph {i}: 🍝 0", font=("Arial", 10))
+        stat.pack()
+        stat_labels.append(stat)
+
+        p = Philosopher(i, forks[i], forks[(i + 1) % NUM_PHILOSOPHERS],
+                        canvas, coords, stat_labels[i])
+        philosophers.append(p)
+
+    for p in philosophers:
+        p.start()
+
+    def on_close():
+        for p in philosophers:
+            p.stop()
+        window.destroy()
+
+    window.protocol("WM_DELETE_WINDOW", on_close)
+    window.mainloop()
+
+run_gui()
